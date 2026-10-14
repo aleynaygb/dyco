@@ -23,6 +23,7 @@ class ABAFramework:
         self.assumptions = set()   # A : assumptions (A included in L)
         self.contraries = {}       # contrary : assumption -> literal /dictionary
 
+    # =================== PART 1 : a + b ====================== 
     def add_literal(self, name):
         """add a literal in L."""
         self.literals.add(name)
@@ -59,30 +60,133 @@ class ABAFramework:
         for assumption, contrary in self.contraries.items():
             print(f"    contrary({assumption}) = {contrary}")
 
+    # =================== PART 1 : c ====================== 
 
-# exemple for better understanding 
-if __name__ == "__main__":
-    aba = ABAFramework()
 
-    # 0. On donne un nom lisible à chaque phrase
-    SOLEIL_ANNONCE = "la météo annonce du soleil"                # q (fait)
-    CIEL_DEGAGE = "le ciel reste dégagé"                         # a (assumption)
-    IL_VA_PLEUVOIR = "il va pleuvoir"                            # c_a (contraire de a)
-    NUAGES_PLUIE = "les nuages noirs annoncent la pluie"         # b (assumption)
-    NUAGES_INOFFENSIFS = "ces nuages sont inoffensifs"           # c_b (contraire de b)
-    PAS_DE_PARAPLUIE = "je laisse le parapluie à la maison"      # p (conclusion)
+    def is_atomic(self):
+        """atomic : body of each rule is included in A."""
+        for rule in self.rules:
+            # if body of the rule not included in A 
+            if not set(rule.body) <= self.assumptions: 
+                return False
+        return True 
 
-    # 1. Littéraux ordinaires
-    for lit in [SOLEIL_ANNONCE, PAS_DE_PARAPLUIE]:
-        aba.add_literal(lit)
+    def is_circular(self):
+        """circular : an atom can be derived from itself (cycle in the rules)."""
+        # dependances : for each head of rule, atoms that it depends on 
+        depends_on = {}
+        for rule in self.rules:
+            if rule.head not in depends_on:
+                depends_on[rule.head] = set()
+            for atom in rule.body:
+                depends_on[rule.head].add(atom)
 
-    # 2. Assumptions (avec leur contraire)
-    aba.add_assumption(CIEL_DEGAGE, IL_VA_PLEUVOIR)
-    aba.add_assumption(NUAGES_PLUIE, NUAGES_INOFFENSIFS)
+        in_progress = set()   # atoms to check
+        checked = set()       # checked atoms
 
-    # 3. Règles
-    aba.add_rule(PAS_DE_PARAPLUIE, [SOLEIL_ANNONCE, CIEL_DEGAGE])
-    aba.add_rule(SOLEIL_ANNONCE)
-    aba.add_rule(IL_VA_PLEUVOIR, [NUAGES_PLUIE])
+        def has_cycle(atom):
+            if atom in in_progress: # cycle
+                return True
+            if atom in checked: # no cycle
+                return False
+            in_progress.add(atom)
+            for dep in depends_on.get(atom, []):
+                if has_cycle(dep):
+                    return True
+            in_progress.remove(atom)
+            checked.add(atom)
+            return False
 
-    aba.display()
+        for atom in depends_on:
+            if has_cycle(atom):
+                return True
+        return False
+
+    def to_non_circular(self):
+        non_assumptions = self.literals - self.assumptions
+        k = len(non_assumptions)
+
+        def name(s, i):
+            # s^k = s, other steps are renamed
+            return s if i == k else f"{s}_{i}"
+
+        new = ABAFramework()
+
+        # 1. literals : old ones + copies
+        for lit in self.literals:
+            new.add_literal(lit)
+        for s in non_assumptions:
+            for i in range(1, k + 1):
+                new.add_literal(name(s, i))
+
+        # 2. inchanged assumptions and contraries
+        for a in self.assumptions:
+            new.add_assumption(a, self.contraries[a])
+
+        # 3. rules
+        for rule in self.rules:
+            atomic = set(rule.body) <= self.assumptions
+            start = 1 if atomic else 2      # atomique : étages 1..k, sinon 2..k
+            for i in range(start, k + 1):
+                if atomic:
+                    new_body = list(rule.body)
+                else:
+                    new_body = [p if p in self.assumptions else name(p, i - 1)
+                                for p in rule.body]
+                new.add_rule(name(rule.head, i), new_body)
+
+        return new
+
+    def to_atomic(self):
+        non_assumptions = self.literals - self.assumptions
+
+        new = ABAFramework()
+
+        # 1. original literals and assumptions
+        for lit in self.literals:
+            new.add_literal(lit)
+        for a in self.assumptions:
+            new.add_assumption(a, self.contraries[a])
+
+        # 2. new assumptions s_d and s_nd
+        for s in non_assumptions:
+            new.add_assumption(f"{s}_d", f"{s}_nd")   # contraire de s_d  = s_nd
+            new.add_assumption(f"{s}_nd", s)          # contraire de s_nd = s
+
+        # 3. rules : each literals\assumption becomes s_d
+        for rule in self.rules:
+            new_body = [p if p in self.assumptions else f"{p}_d" for p in rule.body]
+            new.add_rule(rule.head, new_body)
+
+        return new
+
+    def convert(self):
+        return self.to_non_circular().to_atomic()
+
+def show_properties(framework):
+    """Affiche si le framework est atomique et/ou circulaire."""
+    print("Atomique   ?", framework.is_atomic())
+    print("Circulaire ?", framework.is_circular())
+
+# ======================= TEST ==========================
+
+f = ABAFramework()
+f.add_literal("q")
+f.add_assumption("a", "r")   # contraire de a = r
+f.add_assumption("b", "p")   # contraire de b = p
+
+f.add_rule("p", ["q"])       # p <- q  (non atomique : q n'est pas une hypothèse)
+f.add_rule("q", ["a"])       # q <- a  (atomique)
+f.add_rule("r", ["b"])       # r <- b  (atomique)
+f.add_rule("p", ["a"])       # p <- a  (atomique)
+f.add_rule("q", ["p"])       # q <- p 
+
+print("=== AVANT ===")
+f.display()
+show_properties(f)
+
+g = f.to_atomic()
+
+print("\n=== APRES ===")
+g.display()
+show_properties(g)

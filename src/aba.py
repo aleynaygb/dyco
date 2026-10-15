@@ -1,192 +1,220 @@
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
 class Rule:
-    """ABA rule : head <- body (body can be empty)."""
+    # rule : head <- body (body can be empty)
     head: str
     body: tuple = ()
 
     def __str__(self):
-        """if empy body -> return head"""
+        # empty body -> only the head
         if not self.body:
             return f"{self.head} <-"
         return f"{self.head} <- {', '.join(self.body)}"
 
-
 class ABAFramework:
-    """ABA framework: (L, R, A, contrary)."""
-
     def __init__(self):
-        self.literals = set()      # L : language
-        self.rules = []            # R : rules /list
-        self.assumptions = set()   # A : assumptions (A included in L)
-        self.contraries = {}       # contrary : assumption -> literal /dictionary
+        self.literals = set()      # language l
+        self.rules = []            # list of Rule
+        self.assumptions = set()   # a
+        self.contraries = {}       # assumption -> its contrary
+        self.preferences = set()   # pairs (weaker, stronger)
 
-    # =================== PART 1 : a + b ====================== 
-    def add_literal(self, name):
-        """add a literal in L."""
-        self.literals.add(name)
+    # ---------- 1 & 2. definition of the framework ----------
 
-    def add_assumption(self, name, contrary):
-        """form an assumption and its contrary"""
-        if any(rule.head == name for rule in self.rules):
-            raise ValueError(f"'{name}' est tête d'une règle : ABA non plat.")
-        # add assumption both in A and L
-        self.add_literal(name)
-        self.add_literal(contrary)
-        self.assumptions.add(name)
-        self.contraries[name] = contrary
+    def add_literal(self, lit):
+        self.literals.add(lit)
 
     def add_rule(self, head, body=()):
-        """add 'head <- body' rule, after verification."""
-        for literal in (head, *body):
-            # each literal must be declared
-            if literal not in self.literals:
-                raise ValueError(f"Littéral inconnu : '{literal}'.")
-        # refuses a rule if its head is an assumption    
-        if head in self.assumptions:
-            raise ValueError(f"'{head}' est une assumption : ABA non plat.")
         self.rules.append(Rule(head, tuple(body)))
 
-    def display(self):
-        """display framework."""
-        print("Langage L      :", sorted(self.literals))
-        print("Assumptions A  :", sorted(self.assumptions))
-        print("Règles R       :")
-        for rule in self.rules:
-            print("   ", rule)
-        print("Contraires     :")
-        for assumption, contrary in self.contraries.items():
-            print(f"    contrary({assumption}) = {contrary}")
+    def add_assumption(self, a, contrary):
+        # an assumption and its contrary are both literals
+        self.literals.add(a)
+        self.literals.add(contrary)
+        self.assumptions.add(a)
+        self.contraries[a] = contrary
 
-    # =================== PART 1 : c ====================== 
+    def add_preference(self, weaker, stronger):
+        # weaker < stronger
+        self.preferences.add((weaker, stronger))
 
+    # ---------- 3. conversion ----------
 
-    def is_atomic(self):
-        """atomic : body of each rule is included in A."""
-        for rule in self.rules:
-            # if body of the rule not included in A 
-            if not set(rule.body) <= self.assumptions: 
-                return False
-        return True 
-
-    def is_circular(self):
-        """circular : an atom can be derived from itself (cycle in the rules)."""
-        # dependances : for each head of rule, atoms that it depends on 
-        depends_on = {}
-        for rule in self.rules:
-            if rule.head not in depends_on:
-                depends_on[rule.head] = set()
-            for atom in rule.body:
-                depends_on[rule.head].add(atom)
-
-        in_progress = set()   # atoms to check
-        checked = set()       # checked atoms
-
-        def has_cycle(atom):
-            if atom in in_progress: # cycle
-                return True
-            if atom in checked: # no cycle
-                return False
-            in_progress.add(atom)
-            for dep in depends_on.get(atom, []):
-                if has_cycle(dep):
-                    return True
-            in_progress.remove(atom)
-            checked.add(atom)
-            return False
-
-        for atom in depends_on:
-            if has_cycle(atom):
-                return True
-        return False
+    def copy_without_rules(self):
+        # new framework with same l, a, contraries and preferences, but no rules
+        new = ABAFramework()
+        new.literals = set(self.literals)
+        new.assumptions = set(self.assumptions)
+        new.contraries = dict(self.contraries)
+        new.preferences = set(self.preferences)
+        return new
 
     def to_non_circular(self):
-        non_assumptions = self.literals - self.assumptions
-        k = len(non_assumptions)
+        non_assump = self.literals - self.assumptions
+        k = len(non_assump) # number of levels
 
         def name(s, i):
-            # s^k = s, other steps are renamed
+            # last level keeps the original name
             return s if i == k else f"{s}_{i}"
 
-        new = ABAFramework()
-
-        # 1. literals : old ones + copies
-        for lit in self.literals:
-            new.add_literal(lit)
-        for s in non_assumptions:
+        new = self.copy_without_rules()
+        # add the copies of each non assumption (one per level)
+        for s in non_assump:
             for i in range(1, k + 1):
-                new.add_literal(name(s, i))
+                new.literals.add(name(s, i))
 
-        # 2. inchanged assumptions and contraries
-        for a in self.assumptions:
-            new.add_assumption(a, self.contraries[a])
-
-        # 3. rules
         for rule in self.rules:
             atomic = set(rule.body) <= self.assumptions
-            start = 1 if atomic else 2      # atomique : étages 1..k, sinon 2..k
+            start = 1 if atomic else 2 # atomic rules: levels 1..k, others: 2..k
             for i in range(start, k + 1):
                 if atomic:
-                    new_body = list(rule.body)
+                    new_body = rule.body
                 else:
-                    new_body = [p if p in self.assumptions else name(p, i - 1)
-                                for p in rule.body]
-                new.add_rule(name(rule.head, i), new_body)
-
+                    # assumptions stay, other literals come from the level below
+                    new_body = tuple(b if b in self.assumptions else name(b, i - 1)
+                                     for b in rule.body)
+                new.rules.append(Rule(name(rule.head, i), new_body))
         return new
 
     def to_atomic(self):
-        non_assumptions = self.literals - self.assumptions
-
-        new = ABAFramework()
-
-        # 1. original literals and assumptions
-        for lit in self.literals:
-            new.add_literal(lit)
-        for a in self.assumptions:
-            new.add_assumption(a, self.contraries[a])
-
-        # 2. new assumptions s_d and s_nd
-        for s in non_assumptions:
-            new.add_assumption(f"{s}_d", f"{s}_nd")   # contraire de s_d  = s_nd
-            new.add_assumption(f"{s}_nd", s)          # contraire de s_nd = s
-
-        # 3. rules : each literals\assumption becomes s_d
+        non_assump = self.literals - self.assumptions
+        new = self.copy_without_rules()
+        # two new assumptions for each non assumption
+        for s in non_assump:
+            new.literals |= {s + "_d", s + "_nd"}
+            new.assumptions |= {s + "_d", s + "_nd"}
+            new.contraries[s + "_d"] = s + "_nd"
+            new.contraries[s + "_nd"] = s
+        # in each body, a non assumption s becomes s_d
         for rule in self.rules:
-            new_body = [p if p in self.assumptions else f"{p}_d" for p in rule.body]
-            new.add_rule(rule.head, new_body)
-
+            new_body = tuple(b if b in self.assumptions else b + "_d" for b in rule.body)
+            new.rules.append(Rule(rule.head, new_body))
         return new
 
     def convert(self):
+        # first remove cycles, then make atomic
         return self.to_non_circular().to_atomic()
 
-def show_properties(framework):
-    """Affiche si le framework est atomique et/ou circulaire."""
-    print("Atomique   ?", framework.is_atomic())
-    print("Circulaire ?", framework.is_circular())
+    # ---------- 4. arguments and attacks ----------
 
-# ======================= TEST ==========================
+    def build_arguments(self):
+        # an argument is (support, conclusion)
+        # every assumption is an argument for itself
+        args = {(frozenset([a]), a) for a in self.assumptions}
+        changed = True
+        while changed: # repeat until nothing new
+            changed = False
+            for rule in self.rules:
+                # for each literal of the body, all the supports that prove it
+                options = [[X for (X, s) in args if s == b] for b in rule.body]
+                # pick one support per body literal and merge them
+                combos = [frozenset()]
+                for opt in options:
+                    combos = [c | X for c in combos for X in opt]
+                for X in combos:
+                    if (X, rule.head) not in args:
+                        args.add((X, rule.head))
+                        changed = True
+        return args
+
+    def build_attacks(self, args):
+        # (x, s) attacks (y, t) if s is the contrary of an assumption in y
+        attacks = set()
+        for (X, s) in args:
+            for (Y, t) in args:
+                if any(self.contraries[a] == s for a in Y):
+                    attacks.add(((X, s), (Y, t)))
+        return attacks
+
+    # ---------- 5. preferences: normal / reverse attacks ----------
+
+    def build_attacks_plus(self, args):
+        normal, reverse = set(), set()
+        for (X, s) in args:
+            for (Y, t) in args:
+                for y in Y:
+                    if self.contraries[y] == s: # (x, s) attacks y
+                        # is one assumption of x weaker than the attacked y ?
+                        if any((x, y) in self.preferences for x in X):
+                            reverse.add(((Y, t), (X, s))) # attack is reversed
+                        else:
+                            normal.add(((X, s), (Y, t))) # normal attack
+        return normal, reverse
+
+        # ---------- display of the framework and its properties (for tests) ----------
+
+    def is_atomic(self):
+        # atomic if the body of every rule only contains assumptions
+        for rule in self.rules:
+            if not set(rule.body) <= self.assumptions:
+                return False
+        return True
+
+    def is_circular(self):
+        # circular if a literal can depend on itself through the rules
+        # deps[h] = literals that appear in the bodies of the rules with head h
+        deps = {}
+        for rule in self.rules:
+            deps.setdefault(rule.head, set()).update(rule.body)
+
+        def has_cycle(lit, path):
+            if lit in path:                    # we came back to a literal of the path
+                return True
+            for d in deps.get(lit, []):        # follow each dependency
+                if has_cycle(d, path | {lit}):
+                    return True
+            return False
+
+        return any(has_cycle(h, set()) for h in deps)
+
+    def display(self):
+        print("literals    :", sorted(self.literals))
+        print("assumptions :", sorted(self.assumptions))
+        print("rules       :")
+        for rule in self.rules:
+            print("   ", rule)
+        print("contraries  :")
+        for a, c in self.contraries.items():
+            print(f"    contrary({a}) = {c}")
+        print("preferences :", sorted(self.preferences))
+        print("atomic      :", self.is_atomic())
+        print("circular    :", self.is_circular())
+
+
+def fmt(arg):
+    # print an argument like {a} |- p
+    X, s = arg
+    return "{" + ",".join(sorted(X)) + "} |- " + s
+
+
+# ---------- test : default reasoning (tweety and joe) ----------
 
 f = ABAFramework()
-f.add_literal("q")
-f.add_assumption("a", "r")   # contraire de a = r
-f.add_assumption("b", "p")   # contraire de b = p
 
-f.add_rule("p", ["q"])       # p <- q  (non atomique : q n'est pas une hypothèse)
-f.add_rule("q", ["a"])       # q <- a  (atomique)
-f.add_rule("r", ["b"])       # r <- b  (atomique)
-f.add_rule("p", ["a"])       # p <- a  (atomique)
-f.add_rule("q", ["p"])       # q <- p 
+# literals (non assumptions)
+for lit in ["fly_tweety", "fly_joe", "bird_tweety", "bird_joe",
+            "penguin_tweety", "penguin_joe"]:
+    f.add_literal(lit)
 
-print("=== AVANT ===")
+# assumptions : "tweety / joe are normal", with their contrary
+f.add_assumption("normal_tweety", "not_fly_tweety")
+f.add_assumption("normal_joe", "not_fly_joe")
+
+# fly(X) <- bird(X), normal(X)
+f.add_rule("fly_tweety", ["bird_tweety", "normal_tweety"])
+f.add_rule("fly_joe", ["bird_joe", "normal_joe"])
+# not_fly(X) <- penguin(X)
+f.add_rule("not_fly_tweety", ["penguin_tweety"])
+f.add_rule("not_fly_joe", ["penguin_joe"])
+# bird(X) <- penguin(X)
+f.add_rule("bird_tweety", ["penguin_tweety"])
+f.add_rule("bird_joe", ["penguin_joe"])
+# facts
+f.add_rule("penguin_tweety")
+f.add_rule("bird_joe")
+
 f.display()
-show_properties(f)
-
-g = f.to_atomic()
-
-print("\n=== APRES ===")
-g.display()
-show_properties(g)
+# not circular, so to_atomic is enough (convert would build 8 levels)
+print("rules after to_atomic :")
+#f.convert().display()

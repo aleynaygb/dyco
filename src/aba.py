@@ -188,33 +188,72 @@ def fmt(arg):
     return "{" + ",".join(sorted(X)) + "} |- " + s
 
 
-# ---------- test : default reasoning (tweety and joe) ----------
-
+# ---------- test : using exemple from TD4 ----------
+"""
 f = ABAFramework()
 
-# literals (non assumptions)
-for lit in ["fly_tweety", "fly_joe", "bird_tweety", "bird_joe",
-            "penguin_tweety", "penguin_joe"]:
-    f.add_literal(lit)
+# L
+f.add_literal("x")
+f.add_literal("y")
+f.add_literal("z")
 
-# assumptions : "tweety / joe are normal", with their contrary
-f.add_assumption("normal_tweety", "not_fly_tweety")
-f.add_assumption("normal_joe", "not_fly_joe")
+# A + contraries
+f.add_assumption("a", "y")  
+f.add_assumption("b", "x")    
 
-# fly(X) <- bird(X), normal(X)
-f.add_rule("fly_tweety", ["bird_tweety", "normal_tweety"])
-f.add_rule("fly_joe", ["bird_joe", "normal_joe"])
-# not_fly(X) <- penguin(X)
-f.add_rule("not_fly_tweety", ["penguin_tweety"])
-f.add_rule("not_fly_joe", ["penguin_joe"])
-# bird(X) <- penguin(X)
-f.add_rule("bird_tweety", ["penguin_tweety"])
-f.add_rule("bird_joe", ["penguin_joe"])
-# facts
-f.add_rule("penguin_tweety")
-f.add_rule("bird_joe")
+# R
+f.add_rule("y", ["b"])
+f.add_rule("y", ["y"]) #cycle
+f.add_rule("x", ["x"]) #cycle
+f.add_rule("x", ["a"]) 
+f.add_rule("z", ["x","y"]) 
 
+# framework w its properties
+print("=== original framework ===")
 f.display()
-# not circular, so to_atomic is enough (convert would build 8 levels)
-print("rules after to_atomic :")
-#f.convert().display()
+
+# conversion
+print("\n=== to non circular ===")
+f.to_non_circular().display()
+print("\n=== after conversion ===")
+f.convert().display()
+
+# arguments and attacks 
+args = f.build_arguments()
+print("\narguments :")
+for a in sorted(fmt(x) for x in args):
+    print("   ", a)
+print("attaques :", len(f.build_attacks(args)))
+
+# like the td correction
+nc = f.to_non_circular()
+args_nc = nc.build_arguments()
+print("\narguments (non circular) :", len(args_nc))
+for a in sorted(fmt(x) for x in args_nc):
+    print("   ", a)
+print("attaques (non circular) :", len(nc.build_attacks(args_nc)))
+"""
+"""
+# ---------- test : umbrella example (preferences) ----------
+
+u = ABAFramework()
+for lit in ["rain", "sun", "umbrella"]:
+    u.add_literal(lit)
+u.add_assumption("forecast_ok", "sun")   # forecast is right, contrary = sun
+u.add_assumption("sky_ok", "rain")       # my eyes are right, contrary = rain
+u.add_rule("rain", ["forecast_ok"])
+u.add_rule("sun", ["sky_ok"])
+u.add_rule("umbrella", ["rain"])
+u.add_preference("sky_ok", "forecast_ok")  # sky_ok < forecast_ok
+
+u.display()
+args = u.build_arguments()
+print("\nattacks without preferences :", len(u.build_attacks(args)))
+normal, reverse = u.build_attacks_plus(args)
+print("normal attacks :", len(normal))
+for x, y in sorted((fmt(x), fmt(y)) for x, y in normal):
+    print("   ", x, "-->", y)
+print("reverse attacks :", len(reverse))
+for x, y in sorted((fmt(x), fmt(y)) for x, y in reverse):
+    print("   ", x, "-->", y)
+    """

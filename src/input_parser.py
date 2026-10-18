@@ -18,7 +18,7 @@ def parse_text(text):
     for line in text.splitlines():
         line = line.strip()
         if line == "" or line.startswith("##"):
-            continue                                   # empty line or title
+            continue # empty line or title
         if line.startswith("L:"):
             literals = read_list(line[2:])
         elif line.startswith("A:"):

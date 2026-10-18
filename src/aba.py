@@ -233,3 +233,27 @@ for a in sorted(fmt(x) for x in args_nc):
     print("   ", a)
 print("attaques (non circular) :", len(nc.build_attacks(args_nc)))
 """
+"""
+# ---------- test : umbrella example (preferences) ----------
+
+u = ABAFramework()
+for lit in ["rain", "sun", "umbrella"]:
+    u.add_literal(lit)
+u.add_assumption("forecast_ok", "sun")   # forecast is right, contrary = sun
+u.add_assumption("sky_ok", "rain")       # my eyes are right, contrary = rain
+u.add_rule("rain", ["forecast_ok"])
+u.add_rule("sun", ["sky_ok"])
+u.add_rule("umbrella", ["rain"])
+u.add_preference("sky_ok", "forecast_ok")  # sky_ok < forecast_ok
+
+u.display()
+args = u.build_arguments()
+print("\nattacks without preferences :", len(u.build_attacks(args)))
+normal, reverse = u.build_attacks_plus(args)
+print("normal attacks :", len(normal))
+for x, y in sorted((fmt(x), fmt(y)) for x, y in normal):
+    print("   ", x, "-->", y)
+print("reverse attacks :", len(reverse))
+for x, y in sorted((fmt(x), fmt(y)) for x, y in reverse):
+    print("   ", x, "-->", y)
+    """
